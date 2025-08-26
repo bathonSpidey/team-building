@@ -8,7 +8,7 @@ import {
   publishToRoom,
   SignalMessage,
 } from "../../../lib/signaling";
-import SignalRelayCalibration from "./SignalRelayCalibration";
+import RiddleRelay from "./RiddleRelay";
 
 type Player = { id: string; name: string; ready: boolean; isHost: boolean };
 
@@ -145,7 +145,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
   }
 
   if (gameStarted) {
-    return <SignalRelayCalibration roomId={roomId} me={me} players={players} />;
+    return <RiddleRelay roomId={roomId} me={me} players={players} />;
   }
 
   // --- render lobby ---
