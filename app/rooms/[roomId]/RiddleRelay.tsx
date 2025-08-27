@@ -2,8 +2,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RIDDLES } from "../../../lib/riddles";
 import { publishToRoom, SignalMessage } from "../../../lib/signaling";
+import { useRiddleState } from "./riddleState";
+import { useRiddleTimer } from "./useRiddleTimer";
 import type { Player } from "../../type";
 
 type Props = {
@@ -13,23 +14,28 @@ type Props = {
 };
 
 export default function RiddleRelay({ roomId, me, players }: Props) {
-  const [myRiddle, setMyRiddle] = useState<{
-    question: string;
-    answer: string;
-  } | null>(null);
-  const [input, setInput] = useState("");
-  const [solvedPlayers, setSolvedPlayers] = useState<Record<string, boolean>>(
-    {}
-  );
-  const [teamComplete, setTeamComplete] = useState(false);
+  // --- State ---
+  const {
+    myRiddle,
+    setMyRiddle,
+    input,
+    setInput,
+    solvedPlayers,
+    setSolvedPlayers,
+    teamComplete,
+    setTeamComplete,
+    gameOver,
+    setGameOver,
+    assignNewRiddle,
+    resetState,
+  } = useRiddleState();
   const [timerStart, setTimerStart] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(120);
-  const [gameOver, setGameOver] = useState(false);
+  const timeLeft = useRiddleTimer(timerStart, teamComplete, gameOver, 120);
 
-  // assign unique riddle to me
+  // --- Effects ---
+  // Assign unique riddle to me on mount
   useEffect(() => {
-    const idx = Math.floor(Math.random() * RIDDLES.length);
-    setMyRiddle(RIDDLES[idx]);
+    assignNewRiddle();
   }, []);
 
   // Host starts timer and broadcasts to all
@@ -39,43 +45,36 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
       setTimerStart(now);
       publishToRoom(roomId, "TIMER_START", { start: now }, me.id);
     }
-  }, [me.isHost, timerStart, roomId]);
+  }, [me.isHost, timerStart, roomId, me.id]);
 
   // Listen for SSE updates
   useEffect(() => {
     const es = new EventSource(`/api/signal?roomId=${roomId}`);
     es.onmessage = (e) => {
       const msg: SignalMessage = JSON.parse(e.data);
-      if (msg.type === "RIDDLE_SOLVED") {
-        setSolvedPlayers((prev) => ({ ...prev, [msg.payload.playerId]: true }));
-      }
-      if (msg.type === "TIMER_START" && msg.payload?.start) {
-        setTimerStart(msg.payload.start);
-        setGameOver(false);
-        setTeamComplete(false);
-        setSolvedPlayers({});
-        setTimeLeft(120);
-        // Optionally re-assign a new riddle
-        const idx = Math.floor(Math.random() * RIDDLES.length);
-        setMyRiddle(RIDDLES[idx]);
+      switch (msg.type) {
+        case "RIDDLE_SOLVED":
+          setSolvedPlayers((prev) => ({
+            ...prev,
+            [msg.payload.playerId]: true,
+          }));
+          break;
+        case "TIMER_START":
+          if (msg.payload?.start) {
+            setGameOver(false);
+            setTeamComplete(false);
+            setSolvedPlayers({});
+            setTimerStart(msg.payload.start);
+            setInput("");
+            assignNewRiddle();
+          }
+          break;
+        default:
+          break;
       }
     };
     return () => es.close();
   }, [roomId]);
-
-  // Timer countdown
-  useEffect(() => {
-    if (!timerStart || teamComplete || gameOver) return;
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - timerStart) / 1000);
-      const left = Math.max(0, 120 - elapsed);
-      setTimeLeft(left);
-      if (left === 0) {
-        setGameOver(true);
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [timerStart, teamComplete, gameOver]);
 
   // Team completion check
   useEffect(() => {
@@ -84,13 +83,15 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
     }
   }, [players, solvedPlayers]);
 
+  // --- Actions ---
   function restartGame() {
     const now = Date.now();
     setGameOver(false);
     setTeamComplete(false);
     setSolvedPlayers({});
     setTimerStart(now);
-    setTimeLeft(120);
+    setInput("");
+    assignNewRiddle();
     publishToRoom(roomId, "TIMER_START", { start: now }, me.id);
   }
 
@@ -104,7 +105,7 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
     }
   }
 
-  // Render logic
+  // --- Render logic ---
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Riddle Relay</h2>
