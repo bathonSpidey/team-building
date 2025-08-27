@@ -1,7 +1,6 @@
 // pages/api/signal.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-
-type Player = { id: string; name: string; ready: boolean; isHost: boolean };
+import type { Player } from "../../app/type";
 type Message = {
   roomId: string;
   type: string;
@@ -88,6 +87,13 @@ export default async function handler(
         roomId,
         list.filter((p) => p.id !== payload.playerId)
       );
+    } else if (type === "RIDDLE_SOLVED") {
+      const list = playerMap.get(roomId) || [];
+      const idx = list.findIndex((p) => p.id === payload.playerId);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], solved: true }; // persist solved state
+      }
+      playerMap.set(roomId, list);
     }
 
     // Broadcast to all subscribers

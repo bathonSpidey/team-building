@@ -4,8 +4,7 @@
 import { useEffect, useState } from "react";
 import { RIDDLES } from "../../../lib/riddles";
 import { publishToRoom, SignalMessage } from "../../../lib/signaling";
-
-type Player = { id: string; name: string; ready: boolean; isHost: boolean };
+import type { Player } from "../../type";
 
 type Props = {
   roomId: string;
@@ -50,6 +49,7 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
 
   function submitAnswer() {
     if (!myRiddle) return;
+    publishToRoom(roomId, "RIDDLE_SOLVED", { playerId: me.id }, me.id);
     if (input.trim().toLowerCase() === myRiddle.answer.toLowerCase()) {
       publishToRoom(roomId, "RIDDLE_SOLVED", { playerId: me.id }, me.id);
       setSolvedPlayers((prev) => ({ ...prev, [me.id]: true }));

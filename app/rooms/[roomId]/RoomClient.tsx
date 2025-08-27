@@ -9,8 +9,7 @@ import {
   SignalMessage,
 } from "../../../lib/signaling";
 import RiddleRelay from "./RiddleRelay";
-
-type Player = { id: string; name: string; ready: boolean; isHost: boolean };
+import type {Player} from "../../type";
 
 export default function RoomClient({ roomId }: { roomId: string }) {
   const search = useSearchParams();
