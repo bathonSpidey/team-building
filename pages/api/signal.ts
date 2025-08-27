@@ -20,6 +20,54 @@ function sendSSE(res: NextApiResponse, data: any) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+// --- Helper functions ---
+function addPlayer(roomId: string, player: Player) {
+  const playerMap = global.__SSE_PLAYERS!;
+  const list = playerMap.get(roomId) || [];
+  if (!list.find((p) => p.id === player.id)) list.push(player);
+  playerMap.set(roomId, list);
+}
+
+function updatePlayer(roomId: string, player: Player) {
+  const playerMap = global.__SSE_PLAYERS!;
+  const list = playerMap.get(roomId) || [];
+  const idx = list.findIndex((p) => p.id === player.id);
+  if (idx >= 0) list[idx] = player;
+  playerMap.set(roomId, list);
+}
+
+function removePlayer(roomId: string, playerId: string) {
+  const playerMap = global.__SSE_PLAYERS!;
+  const list = playerMap.get(roomId) || [];
+  playerMap.set(
+    roomId,
+    list.filter((p) => p.id !== playerId)
+  );
+}
+
+function setPlayerSolved(roomId: string, playerId: string) {
+  const playerMap = global.__SSE_PLAYERS!;
+  const list = playerMap.get(roomId) || [];
+  const idx = list.findIndex((p) => p.id === playerId);
+  if (idx >= 0) list[idx] = { ...list[idx], solved: true };
+  playerMap.set(roomId, list);
+}
+
+function broadcastToRoom(roomId: string, envelope: any) {
+  const map = global.__SSE_ROOMS!;
+  const subs = map.get(roomId);
+  if (subs && subs.size > 0) {
+    for (const r of Array.from(subs)) {
+      try {
+        (r as any).write(`data: ${JSON.stringify(envelope)}\n\n`);
+      } catch {
+        subs.delete(r as any);
+      }
+    }
+  }
+}
+
+// --- Main handler ---
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -70,44 +118,29 @@ export default async function handler(
     if (!roomId || !type)
       return res.status(400).json({ error: "roomId and type required" });
 
-    // Update in-memory player list
-    if (type === "JOIN") {
-      const list = playerMap.get(roomId) || [];
-      if (!list.find((p) => p.id === payload.player.id))
-        list.push(payload.player);
-      playerMap.set(roomId, list);
-    } else if (type === "UPDATE") {
-      const list = playerMap.get(roomId) || [];
-      const idx = list.findIndex((p) => p.id === payload.player.id);
-      if (idx >= 0) list[idx] = payload.player;
-      playerMap.set(roomId, list);
-    } else if (type === "LEAVE") {
-      const list = playerMap.get(roomId) || [];
-      playerMap.set(
-        roomId,
-        list.filter((p) => p.id !== payload.playerId)
-      );
-    } else if (type === "RIDDLE_SOLVED") {
-      const list = playerMap.get(roomId) || [];
-      const idx = list.findIndex((p) => p.id === payload.playerId);
-      if (idx >= 0) {
-        list[idx] = { ...list[idx], solved: true }; // persist solved state
-      }
-      playerMap.set(roomId, list);
+    // --- Event handling ---
+    switch (type) {
+      case "JOIN":
+        addPlayer(roomId, payload.player);
+        break;
+      case "UPDATE":
+        updatePlayer(roomId, payload.player);
+        break;
+      case "LEAVE":
+        removePlayer(roomId, payload.playerId);
+        break;
+      case "RIDDLE_SOLVED":
+        setPlayerSolved(roomId, payload.playerId);
+        break;
+      // Add more event types here as needed
+      default:
+        // No-op for unknown types
+        break;
     }
 
-    // Broadcast to all subscribers
-    const subs = map.get(roomId);
+    // --- Broadcast event ---
     const envelope = { type, payload, senderId, roomId, ts: Date.now() };
-    if (subs && subs.size > 0) {
-      for (const r of Array.from(subs)) {
-        try {
-          (r as any).write(`data: ${JSON.stringify(envelope)}\n\n`);
-        } catch {
-          subs.delete(r as any);
-        }
-      }
-    }
+    broadcastToRoom(roomId, envelope);
 
     res.status(200).json({ ok: true });
   } else {
