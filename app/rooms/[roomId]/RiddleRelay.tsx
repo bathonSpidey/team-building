@@ -31,23 +31,21 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
   } = useRiddleState();
   const [timerStart, setTimerStart] = useState<number | null>(null);
   const timeLeft = useRiddleTimer(timerStart, teamComplete, gameOver, 120);
+  const [nextLevel, setNextLevel] = useState(false);
 
   // --- Effects ---
-  // Assign unique riddle to me on mount
   useEffect(() => {
-    assignNewRiddle();
+    // Only assign riddle on TIMER_START or NEXT_LEVEL, not on mount
   }, []);
 
-  // Host starts timer and broadcasts to all
   useEffect(() => {
-    if (me.isHost && timerStart === null) {
+    if (me.isHost && timerStart === null && !nextLevel) {
       const now = Date.now();
       setTimerStart(now);
       publishToRoom(roomId, "TIMER_START", { start: now }, me.id);
     }
-  }, [me.isHost, timerStart, roomId, me.id]);
+  }, [me.isHost, timerStart, roomId, me.id, nextLevel]);
 
-  // Listen for SSE updates
   useEffect(() => {
     const es = new EventSource(`/api/signal?roomId=${roomId}`);
     es.onmessage = (e) => {
@@ -67,7 +65,11 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
             setTimerStart(msg.payload.start);
             setInput("");
             assignNewRiddle();
+            setNextLevel(false);
           }
+          break;
+        case "NEXT_LEVEL":
+          setNextLevel(true);
           break;
         default:
           break;
@@ -76,22 +78,16 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
     return () => es.close();
   }, [roomId]);
 
-  // Team completion check
   useEffect(() => {
     if (players.length > 0 && players.every((p) => solvedPlayers[p.id])) {
       setTeamComplete(true);
     }
-  }, [players, solvedPlayers]);
+  }, [players, solvedPlayers, setTeamComplete]);
 
   // --- Actions ---
   function restartGame() {
+    if (!me.isHost) return;
     const now = Date.now();
-    setGameOver(false);
-    setTeamComplete(false);
-    setSolvedPlayers({});
-    setTimerStart(now);
-    setInput("");
-    assignNewRiddle();
     publishToRoom(roomId, "TIMER_START", { start: now }, me.id);
   }
 
@@ -105,7 +101,21 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
     }
   }
 
+  function goToNextLevel() {
+    if (!me.isHost) return;
+    publishToRoom(roomId, "NEXT_LEVEL", {}, me.id);
+  }
+
   // --- Render logic ---
+  if (nextLevel) {
+    return (
+      <div className="space-y-6 text-center">
+        <h2 className="text-2xl font-bold">Next Level</h2>
+        <p className="mt-4 text-lg">Coming soon</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Riddle Relay</h2>
@@ -137,6 +147,14 @@ export default function RiddleRelay({ roomId, me, players }: Props) {
           <p className="mt-2">
             Your team worked together and unlocked the next stage.
           </p>
+          {me.isHost && (
+            <button
+              onClick={goToNextLevel}
+              className="mt-4 bg-purple-700 text-white rounded-md px-4 py-2"
+            >
+              Next Level
+            </button>
+          )}
         </div>
       ) : (
         <>
